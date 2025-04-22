@@ -11,6 +11,7 @@
     let showDebug = $state(true);
     let localUserId = $state(Math.random().toString(36).substring(2, 8));
     let lastRoomState = $state<any>(null);
+    let debounceTimer = $state<number | undefined>(undefined);
     
     // Debug logging function that updates UI
     function debug(message: string) {
@@ -69,12 +70,18 @@
 
             case 'blocks.updateProject':
                 if (editorReady && data.data) {
-                    debug('Sending updated content to room');
+                    if(data.event.element == "selected" || !data.event.recordUndo) {
+                        console.log('drop event:', data.event);
+                        return;
+                    } else if (JSON.stringify(JSON.parse(data.data)) == JSON.stringify(lastRoomState)) {
+                        console.log('Room state unchanged:', data.data);
+                    }
+                    console.log('Sending updated content to room', data.data, JSON.stringify(lastRoomState), data);
                     
                     // Use untrack to prevent reactivity loops
                     untrack(() => {
                         onContentChange({
-                            data: data.data,
+                            data: JSON.parse(data.data),
                             origin: localUserId,
                             timestamp: Date.now()
                         });
@@ -91,12 +98,28 @@
         }
     }
 
-    // Store room state but don't auto-load it
+    // Function to debounce operations
+    function debounce(fn: Function, delay: number) {
+        if (debounceTimer !== undefined) {
+            clearTimeout(debounceTimer);
+        }
+        debounceTimer = setTimeout(() => {
+            fn();
+            debounceTimer = undefined;
+        }, delay) as unknown as number;
+    }
+    
+    // Store room state but don't auto-load it with debounce
     $effect(() => {
-        if (!initCode) return;
+        if (!initCode || initCode.origin == localUserId) return;
         
-        debug('Room state updated, storing for manual loading');
-        lastRoomState = initCode.data || initCode;
+        debounce(() => {
+            if (JSON.stringify(initCode.data) !== JSON.stringify(lastRoomState)) {
+                debug('Room state updated with debounce, storing and loading', initCode.data, lastRoomState);
+                loadCode(initCode.data);
+                lastRoomState = initCode.data;
+            }
+        }, 10); // 100ms debounce time
     });
 
     // Toggle debug panel visibility
@@ -116,7 +139,7 @@
         <iframe
             bind:this={iframe}
             title="Calliope Blocks Editor"
-            src="https://iframe-test2.scratch-calliope.pages.dev"
+            src="https://iframe-test4.scratch-calliope.pages.dev"
             frameborder="0"
             width="100%"
             height="100%"
